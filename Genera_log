@@ -1,0 +1,22 @@
+Public Class Logs
+    Public Function Crea_logs(ByVal message As String) As Boolean
+        Try
+            Dim path As String = "c:\Logs_Analisis"
+            Dim dir As New System.IO.DirectoryInfo(path)
+            If Not dir.Exists Then
+                dir.Create()
+            End If
+
+            Dim Fecha_log As String = CStr("LOG - " + Format(System.DateTime.Today, "dd/MM/yyyy-") + Date.Now.ToLongTimeString.ToString + " -----> ")
+            Dim nom_archivo As String = CStr("\Log_" + Format(System.DateTime.Today, "ddMMyyyy") + ".txt")
+            Dim fic As String = path + nom_archivo.ToString
+            Dim texto As String = Fecha_log + message
+            Dim sw As New System.IO.StreamWriter(fic, True)
+            sw.WriteLine(texto)
+            sw.Close()
+            Return True
+        Catch ex As Exception
+            Return False
+        End Try
+    End Function
+End Class
