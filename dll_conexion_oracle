@@ -1,0 +1,369 @@
+Imports System.Data.OracleClient
+Imports System.Data
+Imports System.Collections
+
+Namespace Cone_BDD
+
+    Public Class BDDOracle
+        Dim logs As New Logs 'Llama Clase y funcion de logs
+        Private miTransaccion As Boolean
+        Private miConexion As OracleConnection
+
+
+        Public Property p_transaccion() As Boolean
+
+            Get
+                Return Me.miTransaccion
+            End Get
+            Set(ByVal value As Boolean)
+                Me.miTransaccion = value
+            End Set
+
+        End Property
+
+        Public Property p_conexion() As OracleConnection
+
+            Get
+                If IsNothing(Me.miConexion) Then
+                    Return New OracleConnection
+                Else
+                    Return Me.miConexion
+                End If
+            End Get
+
+            Set(ByVal value As OracleConnection)
+                If IsNothing(value) Then
+                    Me.miConexion = New OracleConnection
+                Else
+                    Me.miConexion = value
+                End If
+            End Set
+
+        End Property
+
+
+
+        Public Sub New()
+            Try
+                Dim config As New Settings
+                Me.miTransaccion = False
+                Me.miConexion = New OracleConnection
+                Me.miConexion.ConnectionString = "Data Source=" & config.Data_Source & ";Persist Security Info=True;User ID=" & config.Usuario_BDD & ";Password= " & config.Password_BDD & ";Unicode=True"
+            Catch ex As Exception
+                Logs.Crea_logs("Error de aplicacion Nº " + CStr(Err.Number) + ": " + CStr(Err.Description))
+            End Try
+        End Sub
+
+        Public Shared Function GetConfigurationValue(ByVal key As String, ByVal defaultValue As String) As String
+            Dim value As String
+            Try
+                value = "" 'System.Web.Configuration.WebConfigurationManager.AppSettings.Get(key)
+                If (value Is Nothing) AndAlso (value = "") Then
+                    value = defaultValue
+                End If
+                Return value
+            Catch ex As System.Exception
+                Dim logs As New Logs 'Llama Clase y funcion de logs
+                value = defaultValue
+                logs.Crea_logs("Error de aplicacion Nº " + CStr(Err.Number) + ": " + CStr(Err.Description))
+            End Try
+            Return String.Empty
+        End Function
+
+        Public Function CerrarConexion(ByRef obj_conec As Object, _
+                                       ByVal sfuenteError As String, _
+                                       ByRef ArrayError As ArrayList) As Boolean
+
+            Try
+
+                CerrarConexion = False
+                If Not (obj_conec Is Nothing) Then
+                    If obj_conec.State = 1 Then obj_conec.Close()
+                    obj_conec = Nothing
+
+                End If
+                CerrarConexion = True
+
+            Catch ex As Exception
+
+                obj_conec = Nothing
+                MakeError(Err.Number, Err.Description, "BDOracle CloseConnection." & (Err.Source), ArrayError)
+                CerrarConexion = False
+                Logs.Crea_logs("Error de aplicacion Nº " + CStr(Err.Number) + ": " + CStr(Err.Description))
+
+            End Try
+
+        End Function
+        Public Sub MakeError(ByVal lErrorNumber As Long, _
+                         ByVal sErrorDescription As String, _
+                         ByVal sErrorSource As String, _
+                         ByRef ArrayError As ArrayList)
+
+            Dim oe As New Cone_BDD.o_error
+
+            oe.p_codigo = lErrorNumber
+            oe.p_fuente = sErrorSource
+            oe.p_descripcion = sErrorDescription
+
+        End Sub
+        Private Sub RaiseErrorADO(ByRef oCmd As ADODB.Command, _
+                                  ByVal lErrorNumber As Long, _
+                                  ByVal sErrorDescription As String, _
+                                  ByVal sErrorSource As String, _
+                                  ByRef ArrayError As ArrayList)
+
+            Dim oADOError As ADODB.Error
+
+            If (oCmd Is Nothing) Or (oCmd.ActiveConnection Is Nothing) Then
+                Dim oe As New Cone_BDD.o_error
+                oe.p_codigo = lErrorNumber
+                oe.p_fuente = sErrorSource
+                oe.p_descripcion = sErrorDescription
+                ArrayError.Add(oe)
+            Else
+                For Each oADOError In oCmd.ActiveConnection.Errors
+                    Dim oe As New Cone_BDD.o_error
+                    oe.p_codigo = oADOError.NativeError
+                    oe.p_fuente = oADOError.Source
+                    oe.p_descripcion = oADOError.Description
+                    ArrayError.Add(oe)
+                Next
+            End If
+
+        End Sub
+        Public Function Getdata(ByVal sSQLQuery As String, _
+                                ByRef oData As OracleDataReader, _
+                                ByVal sw_cursor As Boolean, _
+                                ByRef BD As Cone_BDD.BDDOracle, _
+                                ByVal sfuenteError As String, _
+                                ByRef arrayError As ArrayList, _
+                                ByVal arrayInputParams As ArrayList, _
+                                ByRef arrayOutputParams As ArrayList, _
+                                ByVal tipo_query As String, _
+                                ByRef respuesta As String) As Boolean
+
+            Getdata = False
+
+            Dim oCommand As New OracleCommand(sSQLQuery)
+
+            oCommand.Connection = BD.p_conexion
+            oCommand.CommandText = sSQLQuery
+            If tipo_query.Trim.ToUpper = "SP" Then
+                oCommand.CommandType = CommandType.StoredProcedure
+            Else
+                oCommand.CommandType = CommandType.Text
+            End If
+
+            If Not IsNothing(arrayInputParams) Then
+                SetParams(oCommand, arrayInputParams)
+            End If
+
+            If Not IsNothing(arrayOutputParams) Then
+                SetParams(oCommand, arrayOutputParams)
+            End If
+
+            If sfuenteError.Trim.ToUpper = "CONSULTAR" Then
+
+                Try
+                    oCommand.ExecuteNonQuery()
+                Catch ex As Exception
+                    MakeError(-55, "Error : " & ex.Message, "BDOracle Getdata." & (Err.Source), arrayError)
+                    respuesta = ex.Message
+                    GoTo Getdata_Exit
+                    Logs.Crea_logs("Error de aplicacion Nº " + CStr(Err.Number) + ": " + CStr(Err.Description))
+                End Try
+
+            Else
+
+                Try
+
+                    Dim t As Data.IDbTransaction = BD.p_conexion.BeginTransaction
+                    oCommand.Transaction = t
+                    oCommand.ExecuteNonQuery()
+                    oCommand.Transaction.Commit()
+
+                Catch ex As Exception
+                    oCommand.Transaction.Rollback()
+                    MakeError(-55, "Error : " & ex.Message, "BDOracle Getdata." & (Err.Source), arrayError)
+                    respuesta = ex.Message
+                    Logs.Crea_logs("Error de aplicacion Nº " + CStr(Err.Number) + ": " + CStr(Err.Description))
+                End Try
+
+            End If
+
+            If sw_cursor Then
+                oData = oCommand.Parameters("oCursor").Value
+                If Not Microsoft.VisualBasic.IsDBNull(oCommand.Parameters("odeserror").Value) Then
+                    respuesta = oCommand.Parameters("odeserror").Value
+                End If
+            End If
+
+            'oCommand.Parameters("odeserror").Value
+
+            'If IsArray(arrayOutputParams) Then
+            ' GetParams(oCmd, arrayOutputParams)
+            'End If
+
+            Getdata = True
+            GoTo Getdata_Exit
+
+Getdata_Other_Errors:
+            MakeError(Err.Number, Err.Description, sfuenteError & (Err.Source), arrayError)
+            Getdata = False
+            GoTo Getdata_Exit
+
+Getdata_Exit:
+            oCommand = Nothing
+            Exit Function
+
+        End Function
+        Public Sub SetParams(ByRef oCmd As OracleCommand, ByVal aParams As ArrayList)
+
+            For Each obus As Cone_BDD.o_bus In aParams
+
+                Dim parametro As New OracleParameter()
+                parametro.ParameterName = obus.p_proceso.Trim.ToUpper
+
+                Select Case obus.p_tipo.Trim.ToUpper
+                    Case "VARCHAR"
+                        parametro.OracleType = OracleType.VarChar
+                        parametro.Size = obus.p_volumen
+                    Case "CHAR"
+                        parametro.OracleType = OracleType.Char
+                    Case "DOUBLE"
+                        parametro.OracleType = OracleType.Double
+                    Case "FLOAT"
+                        parametro.OracleType = OracleType.Float
+                    Case "BYTE"
+                        parametro.OracleType = OracleType.Byte
+                    Case "CURSOR"
+                        parametro.OracleType = OracleType.Cursor
+                    Case "DATETIME"
+                        parametro.OracleType = OracleType.DateTime
+                    Case "NUMBER"
+                        parametro.OracleType = OracleType.Number
+                End Select
+
+                Select Case obus.p_direccion.Trim.ToUpper
+                    Case "INPUT"
+                        parametro.Direction = ParameterDirection.Input
+                        parametro.Value = obus.p_valor
+                    Case "OUTPUT"
+                        parametro.Direction = ParameterDirection.Output
+                    Case "INPUTOUTPUT"
+                        parametro.Direction = ParameterDirection.InputOutput
+                    Case "RETURN"
+                        parametro.Direction = ParameterDirection.ReturnValue
+                End Select
+                oCmd.Parameters.Add(parametro)
+                parametro = Nothing
+
+            Next
+
+        End Sub
+    End Class
+    Public Class o_error
+
+        Private micodigo As String
+        Private mifuente As String
+        Private miDescripcion As String
+
+#Region " propiedades "
+
+        Public Property p_codigo() As String
+            Get
+                Return Me.micodigo
+            End Get
+            Set(ByVal value As String)
+                Me.micodigo = value
+            End Set
+        End Property
+
+        Public Property p_fuente() As String
+            Get
+                Return Me.mifuente
+            End Get
+            Set(ByVal value As String)
+                Me.mifuente = value
+            End Set
+        End Property
+
+        Public Property p_descripcion() As String
+            Get
+                Return Me.miDescripcion
+            End Get
+            Set(ByVal value As String)
+                Me.miDescripcion = value
+            End Set
+        End Property
+
+#End Region
+        Public Sub New()
+            Me.micodigo = ""
+            Me.miDescripcion = ""
+            Me.mifuente = ""
+        End Sub
+    End Class
+    Public Class o_bus
+        Private miProceso As String
+        Private miTipo As String
+        Private miDireccion As String
+        Private miValor As String
+        Private miVolumen As Double
+
+#Region " propiedades "
+        Public Property p_proceso() As String
+            Get
+                Return Me.miProceso
+            End Get
+            Set(ByVal value As String)
+                Me.miProceso = value
+            End Set
+        End Property
+
+        Public Property p_tipo() As String
+            Get
+                Return Me.miTipo
+            End Get
+            Set(ByVal value As String)
+                Me.miTipo = value
+            End Set
+        End Property
+
+        Public Property p_direccion() As String
+            Get
+                Return Me.miDireccion
+            End Get
+            Set(ByVal value As String)
+                Me.miDireccion = value
+            End Set
+        End Property
+
+        Public Property p_valor() As String
+            Get
+                Return Me.miValor
+            End Get
+            Set(ByVal value As String)
+                Me.miValor = value
+            End Set
+        End Property
+
+        Public Property p_volumen() As Double
+            Get
+                Return Me.miVolumen
+            End Get
+            Set(ByVal value As Double)
+                Me.miVolumen = value
+            End Set
+        End Property
+#End Region
+        Public Sub New()
+            Me.miProceso = ""
+            Me.miTipo = ""
+            Me.miDireccion = ""
+            Me.miValor = ""
+            Me.miVolumen = 0
+        End Sub
+
+    End Class
+End Namespace
