@@ -1,0 +1,156 @@
+Imports System.Web
+Imports System.Net.Mail
+
+Module Inicio
+    Dim hoy As Date = Date.Now
+    Dim fecha As Date = hoy.AddDays(-3)
+    Dim X As Integer
+    Public MSG, email_seccion, email_log As String
+    Dim systems As New LRPAD
+    Dim logs As New Logs 'Llama Clase y funcion de logs
+    Dim horaEntrada As Date = Now
+    Dim Hora_Ejecucion As Integer = Convert.ToInt32(Format(horaEntrada, "HH"))
+    Dim Minuto_Ejecucion As Integer = Convert.ToInt32(Format(horaEntrada, "mm"))
+    Dim asunto, CRITICIDAD As String
+
+    Sub main()
+
+        Try
+            For X = 1 To 5
+
+                fecha = fecha.AddDays(1)
+                Dim conv_fecha As String = fecha.ToString("dd/MM/yyyy").ToString 'FECHA A PROCESAR
+
+                'conv_fecha = "27/08/2012"    'Aquí el proceso puede recibir una fecha manual para procesar, asignándola  a la variable  conv_fecha
+
+                email_log = " "
+                Dim correo As New correo
+                ' Dim EmailBody As String = correo.RenderContenido(email_seccion, conv_fecha)
+                Dim EmailBody As String
+                Dim Repositorio_secciones As New Data.DataTable
+                Dim trae_secciones As New Secciones.Secciones_dia
+                Dim Repo_Solic_secciones As New Data.DataTable
+                Dim trae_Secciones_Solic As New Secciones_Solic.Secciones_dia
+
+
+
+
+                'Crea Logs en archivo de texto plano
+                logs.Crea_logs("                                                                                          ")
+                logs.Crea_logs(".......................:::::::::::: INICIO DEL PROCESO(" & conv_fecha & ") ::::::::::::.......................")
+                logs.Crea_logs(".................:: INICIA SECUENCIA DE SOLICITUD DE ANÁLISIS QUÍMICO ::..................")
+
+
+                ''''If Hora_Ejecucion = 8 Or Hora_Ejecucion = 9 Then 'VALIDA QUE LA SOLICITUD DE ANALISIS SEA A LAS 8AM HORAS
+                'Trae secciones para solicitud fecha +1 
+                trae_Secciones_Solic.P_FECHA = conv_fecha
+                Repo_Solic_secciones = trae_Secciones_Solic.Trae_Seccion_dia
+                logs.Crea_logs(Mid(trae_Secciones_Solic.P_MSG.ToString.ToUpper, 2, Len(trae_Secciones_Solic.P_MSG.ToString.ToUpper))) 'Genera log
+
+                'Recorre secciones para realizar solicitudes
+                If Mid(trae_Secciones_Solic.P_MSG.ToString, 1, 1) = "0" Then
+                    For Each DataRowm1 As Data.DataRow In Repo_Solic_secciones.Rows
+                        Dim seccion As String = DataRowm1("cseccion").ToString
+                        logs.Crea_logs("Se encontro la sección: " + seccion + " para solicitar análisis químico.")
+
+                        'Solicita análisis químico
+                        Dim solic_analisis As New Solic.Solic_Ana_QUIM
+                        solic_analisis.P_CSECCION = seccion
+                        solic_analisis.P_FECHA = conv_fecha
+                        solic_analisis.Trae_Seccion_dia()
+                        logs.Crea_logs(Mid(solic_analisis.P_MSG.ToString.ToUpper, 3, Len(solic_analisis.P_MSG.ToString.ToUpper))) 'Genera log
+                    Next
+                End If
+                logs.Crea_logs("..............:: TERMINA SECUENCIA DE SOLICITUD DE ANÁLISIS QUÍMICO ::...............")
+                logs.Crea_logs(" ")
+                ''''End If
+
+
+
+                If Hora_Ejecucion > 7 And Hora_Ejecucion <= 20 Then 'VALIDA QUE LA CERTIFICACION DE ANALISIS SEA DESPUES DE 8AM HORAS
+                    'Trae secciones para fecha +1 
+                    trae_secciones.P_FECHA = conv_fecha
+                    Repositorio_secciones = trae_secciones.Trae_Seccion_dia()
+                    logs.Crea_logs(Mid(MSG, 3, Len(MSG))) 'Genera log
+
+
+                    'Recorre secciones con solicitudes asociadas
+                    If Mid(trae_secciones.P_MSG.ToString.ToUpper, 1, 1) = "0" Then
+                        logs.Crea_logs("..............:: INICIA SECUENCIA DE CERTIFICACIÓN DE ANÁLISIS QUÍMICO::...............")
+                        For Each DataRowm As Data.DataRow In Repositorio_secciones.Rows
+                            Dim seccion As String = ""
+                            seccion = DataRowm("cseccion").ToString
+                            logs.Crea_logs("Se encontro la seccion: " + seccion) 'Genera log
+
+                            'Valida cantidad de elementos análisis retorna 0 = ok, 1=error o 2=error
+                            Dim valida_num_elem As New ElementosQ.Num_Elementos
+                            valida_num_elem.P_FECHA = conv_fecha
+                            valida_num_elem.P_SECCIONES = seccion
+                            valida_num_elem.Valida_Elementos()
+                            logs.Crea_logs(Mid(valida_num_elem.P_MSG, 2, Len(valida_num_elem.P_MSG) - 1)) 'Genera log
+
+                            '--- Cuando tiene problemas con el standar quimico --
+                            If Mid(valida_num_elem.P_MSG.ToUpper, 1, 1) = "0" Then
+                                'Valida Rango de elementos 
+                                Dim Rango_elem As New Rango_Internacional.Rango_elementos
+                                Rango_elem.P_FECHA = conv_fecha
+                                Rango_elem.P_SECCIONES = seccion
+                                Rango_elem.Valida_Rango()
+                                logs.Crea_logs(Mid(Rango_elem.P_MSG, 2, Len(Rango_elem.P_MSG))) 'Genera log
+
+                                If Mid(Rango_elem.P_MSG, 1, 1) = "0" Then
+                                    'Certifica Análisis químico 
+                                    Dim Cert_Analisis As New Cert_Analisis.Certifica_ANALISIS
+                                    Cert_Analisis.P_FECHA = conv_fecha
+                                    Cert_Analisis.P_SECCIONES = seccion
+                                    Cert_Analisis.Valida()
+                                    logs.Crea_logs(Mid(Cert_Analisis.P_MSG, 2, Len(Cert_Analisis.P_MSG))) 'Genera log
+                                    logs.Crea_logs("  ")
+
+                                ElseIf Mid(Rango_elem.P_MSG, 1, 1) = "1" Then
+                                    If ((Hora_Ejecucion = 14 Or Hora_Ejecucion = 18) And (Minuto_Ejecucion >= 30 And Minuto_Ejecucion <= 50)) And _
+                                         hoy.AddDays(1).ToString("dd/MM/yyyy").ToString() = conv_fecha Then
+                                        'Envia Email por RANGO DE ELEMENTOS AQ
+                                        asunto = "REPORTE SIGOR: ANÁLISIS QUÍMICO FUERA DE RANGO PARA LA SECCIÓN " + seccion + ", CON FECHA " + conv_fecha
+                                        CRITICIDAD = "<strong style='background-color:red; color: white;'>ALTA </strong>"
+                                        EmailBody = correo.RenderContenido(seccion, conv_fecha, "<strong><u>Log del proceso:</u></strong> " + "<br/>" + Mid(Rango_elem.P_MSG, 2, Len(Rango_elem.P_MSG)), CRITICIDAD)
+                                        correo.EnvioEmail(EmailBody, seccion, conv_fecha, asunto, "ALTA")
+                                    End If
+                                End If
+
+                                '--- cuando no hay elementos o los los elementos son menores de los procesados --
+                            ElseIf Mid(valida_num_elem.P_MSG.ToUpper, 1, 1) = "1" Or Mid(valida_num_elem.P_MSG.ToUpper, 1, 1) = "2" Then
+
+
+                                If (Hora_Ejecucion = 14 And (Minuto_Ejecucion >= 30 And Minuto_Ejecucion <= 50)) And _
+                                hoy.AddDays(1).ToString("dd/MM/yyyy").ToString() = conv_fecha Then
+                                    'Envia Email
+                                    asunto = "REPORTE SIGOR: NO SE ENCONTRO ANÁLISIS QUÍMICOS PARA LA SECCIÓN " + seccion + ", CON FECHA " + conv_fecha
+                                    CRITICIDAD = "<strong style='background-color:yellow; color: black;'>MEDIA<strong>"
+                                    EmailBody = correo.RenderContenido(seccion, conv_fecha, "<strong><u>Log del proceso:</u></strong> " + "<br/>" + Mid(valida_num_elem.P_MSG, 2, Len(valida_num_elem.P_MSG)), CRITICIDAD)
+                                    correo.EnvioEmail(EmailBody, seccion, conv_fecha, asunto, "TODOS")
+                                End If
+
+                            End If
+
+
+                        Next
+
+                    End If
+
+
+                    logs.Crea_logs(".................:: TERMINA SECUENCIA DE CERTIFICACIÓN DE ANÁLISIS QUÍMICO::...............")
+                End If
+
+                logs.Crea_logs(".......................:::::::::::: TERMINO DEL PROCESO ::::::::::::.......................")
+
+
+            Next
+
+        Catch ex As Exception
+            logs.Crea_logs(CStr(Err.Number) + ": " + CStr(Err.Description)) 'Genera log
+        End Try
+    End Sub
+
+
+End Module
