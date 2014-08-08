@@ -1,0 +1,116 @@
+Imports System.Data.OracleClient
+Imports System.Data
+Namespace Usuarios_Emails
+    Public Class Usuarios
+        Dim logs As New Logs 'Llama Clase y funcion de logs
+#Region "Variables"
+        Private _CPERFIL As Integer
+        Public Property P_CPERFIL() As Integer
+            Get
+                Return _CPERFIL
+            End Get
+            Set(ByVal value As Integer)
+                _CPERFIL = value
+            End Set
+        End Property
+
+
+        Private _CDESTINATARIOS As String
+        Public Property P_CDESTINATARIOS() As String
+            Get
+                Return _CDESTINATARIOS
+            End Get
+            Set(ByVal value As String)
+                _CDESTINATARIOS = value
+            End Set
+        End Property
+
+
+        Private _TEMAIL As String
+        Public Property P_TEMAIL() As String
+            Get
+                Return _TEMAIL
+            End Get
+            Set(ByVal value As String)
+                _TEMAIL = value
+            End Set
+        End Property
+
+        Private _TNOMBRE As String
+        Public Property P_TNOMBRE() As String
+            Get
+                Return _TNOMBRE
+            End Get
+            Set(ByVal value As String)
+                _TNOMBRE = value
+            End Set
+        End Property
+        Private _CUSUARIO As String
+        Public Property P_CUSUARIO() As String
+            Get
+                Return _CUSUARIO
+            End Get
+            Set(ByVal value As String)
+                _CUSUARIO = value
+            End Set
+        End Property
+        Private _MSG As String
+        Public Property P_MSG() As String
+            Get
+                Return _MSG
+            End Get
+            Set(ByVal value As String)
+                _MSG = value
+            End Set
+        End Property
+
+#End Region
+#Region "Inicializacion de Variables"
+
+        Public Sub New()
+            Me.P_CDESTINATARIOS = ""
+            Me.P_TEMAIL = ""
+            Me.P_CPERFIL = 0
+            Me.P_TNOMBRE = ""
+            Me._CUSUARIO = ""
+            Me._MSG = Space(200)
+        End Sub
+
+#End Region
+        Public Function Trae_Emails() As DataTable
+            Try
+                Dim BD As New Cone_BDD.BDDOracle
+                Dim package As String = "SGOR_DESTINO_EMAIL.TRAE_EMAIL"
+                Dim oCommand As New OracleCommand(package)
+                Dim P_Data_Adapter As New OracleDataAdapter()
+                Dim DSS As New DataTable
+
+                oCommand.Connection = BD.p_conexion
+                oCommand.CommandText = package
+                oCommand.CommandType = CommandType.StoredProcedure
+
+
+                oCommand.Parameters.Add("ocursor", OracleType.Cursor).Direction = ParameterDirection.Output
+                ''oCommand.Parameters.Add("P_CPERFIL", OracleType.Number).Value = Me.P_CPERFIL
+                ''oCommand.Parameters.Add("P_CDESTINATARIOS", OracleType.VarChar).Value = Me.P_CDESTINATARIOS
+                oCommand.Parameters.Add("P_MSG", OracleType.VarChar).Value = Me.P_MSG
+                oCommand.Parameters.Add("P_MSG", OracleType.VarChar, 400)
+                oCommand.Parameters("P_MSG").Direction = ParameterDirection.InputOutput
+
+
+                BD.p_conexion.Open()
+                P_Data_Adapter.SelectCommand = oCommand
+                P_Data_Adapter.Fill(DSS)
+
+                Me.P_MSG = Trim(oCommand.Parameters("P_MSG").Value.ToString)
+                Return DSS
+                BD.p_conexion.Dispose()
+                BD.p_conexion.Close()
+
+            Catch ex As Exception
+                logs.Crea_logs("Error de aplicacion Nº " + CStr(Err.Number) + ": " + CStr(Err.Description))
+            End Try
+
+        End Function
+    End Class
+End Namespace
